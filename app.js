@@ -75,14 +75,22 @@ $("#files").onchange = async e => {
   const list = [...e.target.files]; e.target.value = "";
   for (const f of list) {
     if (S.photos.length >= MAXP) { toast(`En fazla ${MAXP} fotoğraf`); break; }
-    try { S.photos.push(await loadPhoto(f)); } catch { toast("Bir fotoğraf okunamadı: " + f.name); }
+    try { S.photos.push(await loadPhoto(f)); } catch (err) { console.error(err); showErr("Fotoğraf okunamadı (" + f.name + "): " + (err.message || err)); }
   }
   resetDerived(); renderThumbs();
 };
+async function decodeImage(file) {
+  try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch { /* Safari bazı sürümlerde seçeneği desteklemez */ }
+  try { return await createImageBitmap(file); } catch { /* <img> yoluna geç */ }
+  const url = URL.createObjectURL(file), im = new Image(); im.decoding = "async"; im.src = url;
+  try { await im.decode(); } catch { await new Promise((ok, no) => { im.onload = ok; im.onerror = () => no(new Error("Fotoğraf çözülemedi")); }); }
+  if (!(im.naturalWidth > 0)) throw new Error("Fotoğraf çözülemedi");
+  return im;
+}
 async function loadPhoto(file) {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const sc = Math.min(1, 1920 / Math.max(bmp.width, bmp.height));
-  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+  const bmp = await decodeImage(file), bw = bmp.naturalWidth || bmp.width, bh = bmp.naturalHeight || bmp.height;
+  const sc = Math.min(1, 1920 / Math.max(bw, bh));
+  const c = document.createElement("canvas"); c.width = Math.round(bw * sc); c.height = Math.round(bh * sc);
   c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
   const s2 = Math.min(1, 768 / Math.max(c.width, c.height));
   const t = document.createElement("canvas"); t.width = Math.round(c.width * s2); t.height = Math.round(c.height * s2);
