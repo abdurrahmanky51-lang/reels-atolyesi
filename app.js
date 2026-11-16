@@ -22,13 +22,13 @@ const key = () => $("#apiKey").value.trim();
 // ---------------------------------------------------------------- Gemini çağrısı
 async function gem(models, body, tries = 4) {
   if (!key()) throw new Error("Önce Google (Gemini) API anahtarını girin.");
-  let lastErr;
+  let lastErr, prev = "";
   for (const model of models) {
     for (let i = 0; i < tries; i++) {
       let r, j;
       try {
         const ac = new AbortController(), to = setTimeout(() => ac.abort(), 100000);
-        gem.onWait?.(0, `${model} çağrılıyor… (deneme ${i + 1}/${tries})`);
+        gem.onWait?.(0, `${model} çağrılıyor… (deneme ${i + 1}/${tries}) — yanıt 1 dakikaya kadar sürebilir.` + (prev ? `\nÖnceki hata: ${prev}` : ""));
         try {
           r = await fetch(`${API}${encodeURIComponent(model)}:generateContent`, { method: "POST", signal: ac.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": key() }, body: JSON.stringify(body) });
           j = await r.json().catch(() => ({}));
@@ -36,7 +36,7 @@ async function gem(models, body, tries = 4) {
       } catch (e) { lastErr = new Error(e.name === "AbortError" ? "Gemini 100 sn içinde yanıt vermedi (zaman aşımı)." : "Ağ hatası: " + e.message); gem.onWait?.(0, lastErr.message + " Tekrar deneniyor…"); await sleep(1500 * (i + 1)); continue; }
       if (r.ok) return j;
       const msg = j.error?.message || ("HTTP " + r.status);
-      lastErr = new Error(`${model}: ${msg}`);
+      lastErr = new Error(`${model}: ${msg}`); prev = lastErr.message.slice(0, 220);
       if (r.status === 429 || r.status === 503 || r.status === 500) {
         const m = /retry in ([\d.]+)s/i.exec(msg) || /"retryDelay":\s*"(\d+)/.exec(JSON.stringify(j));
         const wait = Math.min(60, m ? Math.ceil(+m[1]) + 1 : 6 * (i + 1));
