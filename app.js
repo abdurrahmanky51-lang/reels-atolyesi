@@ -38,12 +38,13 @@ async function gem(models, body, tries = 4) {
       const msg = j.error?.message || ("HTTP " + r.status);
       lastErr = new Error(`${model}: ${msg}`); prev = lastErr.message.slice(0, 220);
       if (r.status === 429 || r.status === 503 || r.status === 500) {
-        const m = /retry in ([\d.]+)s/i.exec(msg) || /"retryDelay":\s*"(\d+)/.exec(JSON.stringify(j));
+        const raw = JSON.stringify(j), m = /retry in ([\d.]+)s/i.exec(msg) || /"retryDelay":\s*"(\d+)/.exec(raw);
         const over = r.status === 503 || r.status === 500;           // model yoğun: beklemek yerine sıradaki modele geç
-        if (over && i >= 1) break;
-        const wait = Math.min(60, over ? 3 : (m ? Math.ceil(+m[1]) + 1 : 6 * (i + 1)));
-        if (r.status === 429 && /quota|billing|limit: 0/i.test(msg) && !m) break;
-        gem.onWait?.(wait, `Google şu an yoğun/kota sınırında (${r.status}); ${wait} sn sonra yeniden denenecek…`); await sleep(wait * 1000); continue;
+        if (r.status === 429 && /PerDay|limit"?:\s*0\b/i.test(raw)) { prev = "günlük/sıfır kota"; break; }   // beklemek işe yaramaz
+        if ((over && i >= 1) || (!over && i >= 2)) break;
+        const wait = Math.min(65, over ? 3 : (m ? Math.ceil(+m[1]) + 1 : 8 * (i + 1)));
+        for (let w = wait; w > 0; w--) { gem.onWait?.(w, `Google kota/yoğunluk sınırı (${r.status}) · ${model} · ${w} sn sonra yeniden denenecek…`); await sleep(1000); }
+        continue;
       }
       if (r.status === 404 || (r.status === 400 && /not found|not supported|unknown model/i.test(msg))) break;  // sonraki model
       throw lastErr;   // 400/401/403: anahtar, istek hatası
@@ -182,7 +183,9 @@ Yalnızca JSON döndür: {"prompts":["...", "..."]} (tam ${n} adet).`;
 async function makeImage(prompt) {
   const body = { contents: [{ parts: [{ text: prompt + "\nVertical 9:16 composition, no text, no watermark, no logo." }] }],
     generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "9:16" } } };
-  const j = await gem(imgModels(), body);
+  let j;
+  try { j = await gem(imgModels(), body); }
+  catch (e) { if (/429|quota|RESOURCE_EXHAUSTED|limit/i.test(e.message)) e.message += "\n\nİpucu: Google'ın görsel modelleri ücretsiz anahtarda çoğu zaman kapalı ya da çok düşük kotalı. Google AI Studio / Cloud'da faturalandırmayı açın, birkaç dakika bekleyin ya da bu arada “Kendi fotoğrafını ekle” ile ilerleyin."; throw e; }
   const part = (j.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data);
   if (!part) { const why = textOf(j) || j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || "bilinmiyor"; throw new Error("Görsel üretilmedi (" + String(why).slice(0, 160) + "). Tarifi değiştirip tekrar deneyin."); }
   const bin = atob(part.inlineData.data), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
