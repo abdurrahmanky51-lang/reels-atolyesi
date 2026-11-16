@@ -25,24 +25,32 @@
     <div class="grid2">
       <label>Metin/görsel modeli<input id="mText" value="gemini-2.5-flash"></label>
       <label>Ses (TTS) modeli<input id="mTts" value="gemini-2.5-flash-preview-tts"></label>
+      <label>Görsel modeli<input id="mImg" value="gemini-2.5-flash-image"></label>
     </div>
     <p class="hint">Model adı kullanımdan kalkarsa buradan güncelleyin; ses için yedek olarak <code>gemini-3.1-flash-tts-preview</code> da denenir.</p>
   </details>
 </section>
 
 <section class="card" id="sPhotos">
-  <h2><span>2</span> Fotoğraflar</h2>
-  <label class="drop" id="drop"><input id="files" type="file" accept="image/*" multiple hidden><b>+ Fotoğraf ekle</b><small>En fazla 12, sıralaması video sırasıdır</small></label>
+  <h2><span>2</span> Görseller</h2>
+  <label>Nasıl görseller istiyorsunuz? <small>(konu, mekân, atmosfer, stil)</small>
+    <textarea id="imgPrompt" rows="3" placeholder="Örn. Sisli bir ormanda gizemli ışık yayan eski bir kapı, sinematik, fotogerçekçi"></textarea></label>
+  <div class="grid3">
+    <label>Görsel adedi<select id="imgCount"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option><option>12</option></select></label>
+    <label>Video süresi<select id="dur"><option value="20">~20 sn</option><option value="30" selected>~30 sn</option><option value="45">~45 sn</option><option value="60">~60 sn</option></select></label>
+  </div>
+  <button class="btn primary" id="genImages">Görselleri üret ve anlatımı hazırla</button>
+  <p class="hint" id="imgState"></p>
   <div id="thumbs" class="thumbs"></div>
+  <label class="drop" id="drop"><input id="files" type="file" accept="image/*" multiple hidden><b>+ Kendi fotoğrafını ekle</b><small>İsteğe bağlı · en fazla 12 görsel · sıra video sırasıdır</small></label>
 </section>
 
 <section class="card" id="sScript">
-  <h2><span>3</span> Anlatım metni</h2>
+  <h2><span>3</span> Anlatım metni <small class="hint">(görsellerden otomatik hazırlanır)</small></h2>
   <label>Konu / notlar <small>(isteğe bağlı: yer, olay, vurgulanacak şeyler)</small>
     <textarea id="topic" rows="2" placeholder="Örn. Kapadokya'da balon turu, ilk kez gidenler için"></textarea></label>
   <div class="grid3">
     <label>Üslup<select id="tone"><option>Merak uyandıran</option><option>Bilgilendirici</option><option>Duygusal</option><option>Eğlenceli</option><option>Belgesel</option></select></label>
-    <label>Hedef süre<select id="dur"><option value="20">~20 sn</option><option value="30" selected>~30 sn</option><option value="45">~45 sn</option><option value="60">~60 sn</option></select></label>
     <label class="chk"><input id="cta" type="checkbox" checked> Sonda “takip et” çağrısı</label>
   </div>
   <button class="btn primary" id="genScript">Fotoğraflara bakıp anlatımı yaz</button>
@@ -53,10 +61,10 @@
 <section class="card" id="sVoice">
   <h2><span>4</span> Ses</h2>
   <div class="grid2">
-    <label>Seslendirici<select id="voice"></select></label>
+    <label>Seslendirici <small>(tüm video tek ses)</small><select id="voice"></select></label>
     <label>Konuşma tarzı<input id="vstyle" value="sıcak, akıcı ve ilgi çekici bir anlatıcı gibi"></label>
   </div>
-  <button class="btn primary" id="genVoice">Sesi üret</button>
+  <div class="row wrap"><button class="btn primary" id="genVoice">Sesi üret</button><button class="btn ghost" id="playVoice" type="button">▶ Dinle</button></div>
   <p class="hint" id="voiceState"></p>
 </section>
 

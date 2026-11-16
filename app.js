@@ -12,8 +12,8 @@ function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; 
 function showErr(e) { const b = $("#err"); if (!e) { b.hidden = true; return; } b.textContent = String(e.message || e); b.hidden = false; b.scrollIntoView({ block: "center", behavior: "smooth" }); }
 async function busy(btn, fn, statusSel) {
   if (S.busy) return; S.busy = true; showErr(null); btn.classList.add("busy");
-  S.statusEl = statusSel ? $(statusSel) : $("#voiceState"); if (statusSel) S.statusEl.textContent = "Başlıyor…";
-  try { const r = await fn(); if (statusSel) S.statusEl.textContent = ""; return r; } catch (e) { console.error(e); if (statusSel) S.statusEl.textContent = ""; showErr(e); } finally { btn.classList.remove("busy"); S.busy = false; }
+  const el = S.statusEl = statusSel ? $(statusSel) : $("#voiceState"); if (statusSel) el.textContent = "Başlıyor…";
+  try { const r = await fn(); if (statusSel) el.textContent = ""; return r; } catch (e) { console.error(e); if (statusSel) el.textContent = ""; showErr(e); } finally { btn.classList.remove("busy"); S.busy = false; }
 }
 function lsGet(k, d = "") { try { return localStorage.getItem(k) ?? d; } catch { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* özel gezinme */ } }
@@ -61,14 +61,15 @@ function parseJSON(t) {
   throw new Error("Gemini geçerli JSON döndürmedi.");
 }
 const textModels = () => [...new Set([$("#mText").value.trim() || "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"])];
+const imgModels = () => [...new Set([$("#mImg").value.trim() || "gemini-2.5-flash-image", "gemini-3.1-flash-image-preview"])];
 const ttsModels = () => [...new Set([$("#mTts").value.trim() || "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"])];
 
 // ---------------------------------------------------------------- ayarlar
 (function init() {
-  $("#apiKey").value = lsGet("rs-key"); $("#mText").value = lsGet("rs-mtext", "gemini-2.5-flash"); $("#mTts").value = lsGet("rs-mtts", "gemini-2.5-flash-preview-tts");
+  $("#apiKey").value = lsGet("rs-key"); $("#mText").value = lsGet("rs-mtext", "gemini-2.5-flash"); $("#mTts").value = lsGet("rs-mtts", "gemini-2.5-flash-preview-tts"); $("#mImg").value = lsGet("rs-mimg", "gemini-2.5-flash-image");
   $("#voice").innerHTML = VOICES.map(([n, d]) => `<option value="${n}">${n} — ${d}</option>`).join("");
   $("#voice").value = lsGet("rs-voice", "Kore"); $("#vstyle").value = lsGet("rs-vstyle", $("#vstyle").value);
-  for (const [id, k] of [["#apiKey", "rs-key"], ["#mText", "rs-mtext"], ["#mTts", "rs-mtts"], ["#voice", "rs-voice"], ["#vstyle", "rs-vstyle"]]) $(id).addEventListener("change", () => lsSet(k, $(id).value.trim()));
+  for (const [id, k] of [["#apiKey", "rs-key"], ["#mText", "rs-mtext"], ["#mTts", "rs-mtts"], ["#mImg", "rs-mimg"], ["#voice", "rs-voice"], ["#vstyle", "rs-vstyle"]]) $(id).addEventListener("change", () => lsSet(k, $(id).value.trim()));
   $("#keyShow").onclick = () => { const i = $("#apiKey"); i.type = i.type === "password" ? "text" : "password"; $("#keyShow").textContent = i.type === "password" ? "Göster" : "Gizle"; };
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
   let dp; addEventListener("beforeinstallprompt", e => { e.preventDefault(); dp = e; $("#installBtn").hidden = false; });
@@ -103,7 +104,7 @@ async function loadPhoto(file) {
   t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
   return { img: c, thumb: t.toDataURL("image/jpeg", .5), b64: t.toDataURL("image/jpeg", .82).split(",")[1], name: file.name };
 }
-function resetDerived() { S.segs = []; S.audio = []; renderSegs(); $("#voiceState").textContent = ""; }
+function resetDerived() { S.segs = []; S.voice = null; renderSegs(); $("#voiceState").textContent = ""; }
 function renderThumbs() {
   $("#thumbs").innerHTML = S.photos.map((p, i) => `<div class="th"><img src="${p.thumb}" alt=""><b>${i + 1}</b><div class="tools"><button data-m="-1" data-i="${i}" aria-label="Sola">◀</button><button data-d="${i}" aria-label="Sil">✕</button><button data-m="1" data-i="${i}" aria-label="Sağa">▶</button></div></div>`).join("");
 }
@@ -114,18 +115,61 @@ $("#thumbs").onclick = e => {
   resetDerived(); renderThumbs();
 };
 
+
+// ---------------------------------------------------------------- görsel üretimi
+async function planPrompts(desc, n) {
+  const p = `Dikey (9:16) bir sosyal medya videosu için ${n} ayrı görsel tarifi (İngilizce, görsel üretim modeli için) hazırla.
+Kullanıcının isteği: ${desc}
+Kurallar: Hepsi aynı stil, renk paleti ve (varsa) aynı karakter/mekânla tutarlı olsun; ama her biri farklı bir sahne/açı olsun ve birlikte merak uyandıran bir hikâye akışı oluştursun. Görsellerin üzerinde yazı, logo, filigran olmasın. Her tarif 1-2 cümle olsun.
+Yalnızca JSON döndür: {"prompts":["...", "..."]} (tam ${n} adet).`;
+  try {
+    const j = await gem(textModels(), { contents: [{ parts: [{ text: p }] }], generationConfig: { responseMimeType: "application/json", temperature: .9 } });
+    const arr = (parseJSON(textOf(j)).prompts || []).map(x => String(x).trim()).filter(Boolean);
+    if (arr.length >= n) return arr.slice(0, n);
+    while (arr.length && arr.length < n) arr.push(arr[arr.length - 1] + " (different angle)");
+    if (arr.length) return arr;
+  } catch (e) { console.warn("tarif planı başarısız, düz tarif kullanılacak", e); }
+  return Array.from({ length: n }, (_, i) => `${desc}. Scene ${i + 1} of ${n}, a different composition and angle.`);
+}
+async function makeImage(prompt) {
+  const body = { contents: [{ parts: [{ text: prompt + "\nVertical 9:16 composition, no text, no watermark, no logo." }] }],
+    generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "9:16" } } };
+  const j = await gem(imgModels(), body);
+  const part = (j.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data);
+  if (!part) { const why = textOf(j) || j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || "bilinmiyor"; throw new Error("Görsel üretilmedi (" + String(why).slice(0, 160) + "). Tarifi değiştirip tekrar deneyin."); }
+  const bin = atob(part.inlineData.data), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new File([u], "uretilen.png", { type: part.inlineData.mimeType || "image/png" });
+}
+$("#genImages").onclick = () => busy($("#genImages"), async () => {
+  const desc = $("#imgPrompt").value.trim(); if (!desc) throw new Error("Önce nasıl görseller istediğinizi yazın.");
+  const n = Math.min(+$("#imgCount").value, MAXP - S.photos.length); if (n < 1) throw new Error(`En fazla ${MAXP} görsel olabilir; önce birkaçını silin.`);
+  const st = $("#imgState"); S.statusEl = st; st.textContent = "Görsel tarifleri hazırlanıyor…";
+  const prompts = await planPrompts(desc, n); let made = 0;
+  try {
+    for (let i = 0; i < n; i++) {
+      st.textContent = `Görsel ${i + 1}/${n} üretiliyor…`; S.statusEl = st;
+      S.photos.push(await loadPhoto(await makeImage(prompts[i]))); made++; renderThumbs();
+    }
+  } catch (e) { if (made) { resetDerivedKeepPhotos(); e.message = `${made}/${n} görsel üretildi, sonra durdu: ` + e.message; } throw e; }
+  resetDerivedKeepPhotos();
+  st.textContent = "Görseller hazır; görsellere göre anlatım yazılıyor…"; S.statusEl = $("#scriptState");
+  await makeScript();
+  $("#sScript").scrollIntoView({ behavior: "smooth", block: "start" });
+}, "#imgState");
+function resetDerivedKeepPhotos() { S.segs = []; S.voice = null; renderSegs(); renderThumbs(); }
+
 // ---------------------------------------------------------------- anlatım
-$("#genScript").onclick = () => busy($("#genScript"), async () => {
-  if (!S.photos.length) throw new Error("Önce en az bir fotoğraf ekleyin.");
+async function makeScript() {
+  if (!S.photos.length) throw new Error("Önce görsel üretin ya da fotoğraf ekleyin.");
   const n = S.photos.length, total = +$("#dur").value, per = Math.max(8, Math.round(total / n * 2.4));
-  const prompt = `Sen Türkiye'de Instagram Reels ve YouTube Shorts için çalışan usta bir video metin yazarısın. Aşağıdaki ${n} fotoğrafı sırayla gösteren dikey bir video için TÜRKÇE sesli anlatım yaz.
+  const prompt = `Sen Türkiye'de Instagram Reels ve YouTube Shorts için çalışan usta bir video metin yazarısın. Aşağıdaki ${n} görseli sırayla gösteren dikey bir video için TÜRKÇE sesli anlatım yaz. Bütün bölümler tek bir anlatıcının kesintisiz, birbirine bağlanan tek hikâyesi olsun.
 Kurallar:
 - Tam olarak ${n} bölüm yaz: her fotoğrafa bir bölüm, fotoğraf sırasıyla.
 - Her bölüm yaklaşık ${per} kelime (toplam süre ~${total} sn). Kısa, akıcı, konuşma diliyle, sesli okunacağı için rakamları ve kısaltmaları okunuşuyla yaz.
 - Üslup: ${$("#tone").value}. İlk bölüm izleyiciyi ilk 2 saniyede yakalayan bir kanca cümlesiyle başlasın.${$("#cta").checked ? " Son bölüm kısa bir “takip et” çağrısıyla bitsin." : ""}
 - Yalnızca fotoğrafta gerçekten görünenleri ve kullanıcının notunu esas al; görmediğin yer, isim, tarih ya da istatistik uydurma. Emin değilsen genel ve ilham verici anlat.
 - Emoji, hashtag, sahne yönergesi ya da tırnak kullanma; sadece okunacak metin.
-Kullanıcının notu: ${$("#topic").value.trim() || "(yok — fotoğraflardan çıkar)"}`;
+Kullanıcının notu: ${$("#topic").value.trim() || "(yok — görsellerden çıkar; merak uyandıran bir konu ve hikâye kur)"}`;
   const parts = [{ text: prompt }];
   S.photos.forEach((p, i) => { parts.push({ text: `Fotoğraf ${i + 1}:` }, { inlineData: { mimeType: "image/jpeg", data: p.b64 } }); });
   const j = await gem(textModels(), { contents: [{ parts }], generationConfig: { responseMimeType: "application/json", temperature: .8,
@@ -133,17 +177,19 @@ Kullanıcının notu: ${$("#topic").value.trim() || "(yok — fotoğraflardan ç
   const segs = (parseJSON(textOf(j)).segments || []).map(s => String(s.text || "").trim()).filter(Boolean);
   if (!segs.length) throw new Error("Anlatım üretilemedi, tekrar deneyin.");
   while (segs.length < n) segs.push(""); segs.length = n;
-  S.segs = segs; S.audio = []; renderSegs(); }, "#scriptState");
+  S.segs = segs; S.voice = null; $("#voiceState").textContent = ""; renderSegs();
+}
+$("#genScript").onclick = () => busy($("#genScript"), makeScript, "#scriptState");
 function renderSegs() {
   $("#segs").innerHTML = S.segs.map((t, i) => `<div class="seg"><img src="${S.photos[i]?.thumb || ""}" alt=""><div><textarea data-s="${i}" rows="3">${t.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</textarea>
-    <div class="sub"><span>${wc(t)} kelime</span><button class="btn ghost mini" type="button" data-play="${i}" ${S.audio[i] ? "" : "hidden"}>▶ Dinle</button></div></div></div>`).join("");
+    <div class="sub"><span>${wc(t)} kelime</span></div></div></div>`).join("");
 }
 const wc = t => (t.trim() ? t.trim().split(/\s+/).length : 0);
-$("#segs").addEventListener("input", e => { const i = e.target.dataset.s; if (i == null) return; S.segs[+i] = e.target.value; S.audio[+i] = null; e.target.closest(".seg").querySelector("[data-play]").hidden = true; e.target.closest(".seg").querySelector(".sub span").textContent = wc(e.target.value) + " kelime"; });
-$("#segs").addEventListener("click", e => { const b = e.target.closest("[data-play]"); if (b) playBuf(S.audio[+b.dataset.play]); });
+$("#segs").addEventListener("input", e => { const i = e.target.dataset.s; if (i == null) return; S.segs[+i] = e.target.value; S.voice = null; $("#voiceState").textContent = "Metin değişti: sesi yeniden üretin."; e.target.closest(".seg").querySelector(".sub span").textContent = wc(e.target.value) + " kelime"; });
 let actxShared;
 function actx() { actxShared = actxShared || new (window.AudioContext || window.webkitAudioContext)(); if (actxShared.state === "suspended") actxShared.resume(); return actxShared; }
 function playBuf(buf) { if (!buf) return; const a = actx(), s = a.createBufferSource(); s.buffer = buf; s.connect(a.destination); s.start(); }
+$("#playVoice").onclick = () => S.voice ? playBuf(S.voice.buf) : showErr("Önce sesi üretin.");
 
 // ---------------------------------------------------------------- ses (TTS)
 function pcmToBuffer(b64, mime) {
@@ -158,32 +204,40 @@ function trimSilence(a, buf) {
   s = Math.max(0, s - pad); e = Math.min(d.length - 1, e + pad); if (e - s < 2000) return buf;
   const o = a.createBuffer(1, e - s + 1, buf.sampleRate); o.getChannelData(0).set(d.subarray(s, e + 1)); return o;
 }
-$("#genVoice").onclick = () => busy($("#genVoice"), async () => {
-  if (!S.segs.some(t => t.trim())) throw new Error("Önce “Fotoğraflara bakıp anlatımı yaz”a basıp metni oluşturun.");
-  const voice = $("#voice").value, style = $("#vstyle").value.trim(), st = $("#voiceState");
-  for (let i = 0; i < S.segs.length; i++) {
-    if (S.audio[i]) continue;
-    const text = S.segs[i].trim(); if (!text) { S.audio[i] = actx().createBuffer(1, 2400, 24000); continue; }
-    st.textContent = `Ses üretiliyor… ${i + 1}/${S.segs.length}`;
-    const j = await gem(ttsModels(), { contents: [{ parts: [{ text: `Şunu ${style || "doğal bir anlatıcı gibi"}, Türkçe olarak oku: ${text}` }] }],
-      generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } });
-    const part = (j.candidates?.[0]?.content?.parts || []).find(p => p.inlineData);
-    if (!part) throw new Error("Ses verisi gelmedi (model metni okumak yerine yanıt vermiş olabilir). Tekrar deneyin.");
-    S.audio[i] = pcmToBuffer(part.inlineData.data, part.inlineData.mimeType);
-    renderSegsKeep();
+function splitBounds(buf, texts) {
+  const d = buf.getChannelData(0), sr = buf.sampleRate, win = Math.max(1, Math.round(sr * .01)), n = Math.floor(d.length / win), N = texts.length;
+  const rms = new Float32Array(n); for (let i = 0; i < n; i++) { let q = 0; for (let j = 0; j < win; j++) { const v = d[i * win + j]; q += v * v; } rms[i] = Math.sqrt(q / win); }
+  const sm = new Float32Array(n), K = 6; for (let i = 0; i < n; i++) { let q = 0, c = 0; for (let j = Math.max(0, i - K); j <= Math.min(n - 1, i + K); j++) { q += rms[j]; c++; } sm[i] = q / c; }
+  const lens = texts.map(t => Math.max(1, t.trim().length) + 1), tot = lens.reduce((a, b) => a + b, 0), b = [0]; let cum = 0, prev = 0;
+  for (let k = 1; k < N; k++) {
+    cum += lens[k - 1]; const tg = cum / tot * n, r = .3 * n * Math.min(lens[k - 1], lens[k]) / tot;
+    const lo = Math.max(prev + 15, Math.floor(tg - r)), hi = Math.min(n - 15, Math.ceil(tg + r)); let idx = Math.round(tg);
+    if (hi > lo) { let mn = Infinity; for (let i = lo; i <= hi; i++) mn = Math.min(mn, sm[i]); let best = 1e9; for (let i = lo; i <= hi; i++) if (sm[i] <= mn * 1.15 + 1e-4 && Math.abs(i - tg) < best) { best = Math.abs(i - tg); idx = i; } }
+    prev = Math.min(Math.max(idx, prev + 15), n - 1); b.push(prev * win / sr);
   }
-  const tot = S.audio.reduce((a, b) => a + b.duration, 0);
-  st.textContent = `Ses hazır · toplam ~${tot.toFixed(0)} sn`; });
-function renderSegsKeep() { document.querySelectorAll("[data-play]").forEach(b => b.hidden = !S.audio[+b.dataset.play]); }
+  b.push(buf.duration); return b;
+}
+$("#genVoice").onclick = () => busy($("#genVoice"), async () => {
+  if (!S.segs.some(t => t.trim())) throw new Error("Önce görsel üretip anlatım metnini oluşturun.");
+  const voice = $("#voice").value, style = $("#vstyle").value.trim(), st = $("#voiceState");
+  st.textContent = "Tek ses olarak üretiliyor… (tüm anlatım tek seferde, aynı ses ve tonla)";
+  const text = S.segs.map(t => t.trim()).filter(Boolean).join("\n\n");
+  const j = await gem(ttsModels(), { contents: [{ parts: [{ text: `Şunu ${style || "doğal bir anlatıcı gibi"}, baştan sona aynı ses tonuyla, Türkçe olarak oku: ${text}` }] }],
+    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } });
+  const part = (j.candidates?.[0]?.content?.parts || []).find(p => p.inlineData);
+  if (!part) throw new Error("Ses verisi gelmedi (model metni okumak yerine yanıt vermiş olabilir). Tekrar deneyin.");
+  const buf = pcmToBuffer(part.inlineData.data, part.inlineData.mimeType);
+  S.voice = { buf, bounds: splitBounds(buf, S.segs), voice };
+  st.textContent = `Ses hazır · ${buf.duration.toFixed(0)} sn · tek ses: ${voice}`;
+});
 
 // ---------------------------------------------------------------- video
-const GAP = .25, LEAD = .35, TAIL = .9, FADE = .4;
+const LEAD = .35, TAIL = .9, FADE = .4;
 function plan() {
-  let t = LEAD; const tl = S.audio.map((b, i) => { const s = { i, start: t, dur: b.duration + GAP }; t += s.dur; return s; });
-  tl[0].start = 0; tl[0].dur += LEAD; tl.at(-1).dur += TAIL;
-  const total = tl.reduce((a, s) => a + s.dur, 0);
-  let acc = 0; tl.forEach(s => { s.v0 = acc; acc += s.dur; s.audioAt = s.v0 + (s.i === 0 ? LEAD : 0); });
-  return { tl, total };
+  const b = S.voice.bounds, N = b.length - 1;
+  const tl = Array.from({ length: N }, (_, i) => ({ i, v0: i === 0 ? 0 : b[i] + LEAD, v1: i === N - 1 ? b[N] + LEAD + TAIL : b[i + 1] + LEAD, audioAt: b[i] + LEAD, adur: b[i + 1] - b[i] }));
+  tl.forEach(x => x.dur = x.v1 - x.v0);
+  return { tl, total: tl.at(-1).v1 };
 }
 function chunksOf(text, dur) {
   const w = text.trim().split(/\s+/).filter(Boolean), out = []; if (!w.length) return out;
@@ -226,12 +280,12 @@ function drawCaption(g, W, H, ch, active) {
   });
 }
 $("#render").onclick = () => busy($("#render"), async () => {
-  if (!S.segs.length || S.audio.length !== S.photos.length || S.audio.some(a => !a)) throw new Error("Önce “Sesi üret”e basıp sesin hazır olmasını bekleyin.");
+  if (!S.segs.length || !S.voice || S.voice.bounds.length - 1 !== S.photos.length) throw new Error("Önce “Sesi üret”e basıp sesin hazır olmasını bekleyin.");
   if (typeof MediaRecorder === "undefined") throw new Error("Bu tarayıcı video kaydını desteklemiyor (Chrome, Edge ya da güncel Safari kullanın).");
   const W = +$("#res").value, H = Math.round(W * 16 / 9), mode = $("#fit").value, subsOn = $("#subs").value === "on";
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
   const { tl, total } = plan(), bgs = S.photos.map(p => mode === "blur" ? blurBg(p.img, W, H) : null);
-  const caps = tl.map(s => chunksOf(S.segs[s.i], S.audio[s.i].duration));
+  const caps = tl.map(s => chunksOf(S.segs[s.i], s.adur));
   const a = actx(), dest = a.createMediaStreamDestination();
   const types = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
   const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || "";
@@ -255,7 +309,7 @@ $("#render").onclick = () => busy($("#render"), async () => {
   };
   draw(0); rec.start(250);
   const t0 = a.currentTime + .25;
-  const srcs = tl.map(s => { const n = a.createBufferSource(); n.buffer = S.audio[s.i]; n.connect(dest); n.start(t0 + s.audioAt); return n; });
+  const srcs = [(() => { const n = a.createBufferSource(); n.buffer = S.voice.buf; n.connect(dest); n.start(t0 + LEAD); return n; })()];
   st.textContent = "Video oluşturuluyor… ekranı kapatmayın.";
   await new Promise(res => {
     const id = setInterval(() => {
