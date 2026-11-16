@@ -70,14 +70,13 @@ const ttsModels = () => [...new Set([$("#mTts").value.trim() || "gemini-2.5-flas
 })();
 
 // ---------------------------------------------------------------- fotoğraflar
-$("#drop").addEventListener("click", e => { if (e.target.tagName !== "INPUT") $("#files").click(); });
 $("#files").onchange = async e => {
-  const list = [...e.target.files]; e.target.value = "";
+  const input = e.target, list = [...input.files]; showErr(null);
   for (const f of list) {
     if (S.photos.length >= MAXP) { toast(`En fazla ${MAXP} fotoğraf`); break; }
-    try { S.photos.push(await loadPhoto(f)); } catch (err) { console.error(err); showErr("Fotoğraf okunamadı (" + f.name + "): " + (err.message || err)); }
+    try { S.photos.push(await loadPhoto(f)); renderThumbs(); } catch (err) { console.error(err); showErr("Fotoğraf okunamadı (" + (f.name || "?") + ", " + (f.type || "tür yok") + "): " + (err.message || err)); }
   }
-  resetDerived(); renderThumbs();
+  input.value = ""; resetDerived(); renderThumbs();
 };
 async function decodeImage(file) {
   try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch { /* Safari bazı sürümlerde seçeneği desteklemez */ }
