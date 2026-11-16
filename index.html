@@ -35,6 +35,7 @@
   <h2><span>2</span> Görseller</h2>
   <label>Nasıl görseller istiyorsunuz? <small>(konu, mekân, atmosfer, stil)</small>
     <textarea id="imgPrompt" rows="3" placeholder="Örn. Sisli bir ormanda gizemli ışık yayan eski bir kapı, sinematik, fotogerçekçi"></textarea></label>
+  <div><button class="btn ghost mic" type="button" data-for="imgPrompt">🎤 Konuşarak anlat</button></div>
   <div class="grid3">
     <label>Görsel adedi<select id="imgCount"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option><option>12</option></select></label>
     <label>Video süresi<select id="dur"><option value="20">~20 sn</option><option value="30" selected>~30 sn</option><option value="45">~45 sn</option><option value="60">~60 sn</option></select></label>
@@ -49,6 +50,7 @@
   <h2><span>3</span> Anlatım metni <small class="hint">(görsellerden otomatik hazırlanır)</small></h2>
   <label>Konu / notlar <small>(isteğe bağlı: yer, olay, vurgulanacak şeyler)</small>
     <textarea id="topic" rows="2" placeholder="Örn. Kapadokya'da balon turu, ilk kez gidenler için"></textarea></label>
+  <div><button class="btn ghost mic" type="button" data-for="topic">🎤 Konuşarak anlat</button></div>
   <div class="grid3">
     <label>Üslup<select id="tone"><option>Merak uyandıran</option><option>Bilgilendirici</option><option>Duygusal</option><option>Eğlenceli</option><option>Belgesel</option></select></label>
     <label class="chk"><input id="cta" type="checkbox" checked> Sonda “takip et” çağrısı</label>

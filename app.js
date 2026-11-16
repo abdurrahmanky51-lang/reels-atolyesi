@@ -116,6 +116,54 @@ $("#thumbs").onclick = e => {
 };
 
 
+// ---------------------------------------------------------------- konuşarak yazma (mikrofon)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let mic = null;   // { btn, stop }
+function micUi(btn, on, txt) { btn.classList.toggle("primary", on); btn.textContent = txt || (on ? "⏹ Bitir" : "🎤 Konuşarak anlat"); }
+function appendText(ta, t) { t = t.trim(); if (!t) return; ta.value = (ta.value.trim() + " " + t).trim(); ta.dispatchEvent(new Event("input", { bubbles: true })); }
+document.addEventListener("click", e => { const b = e.target.closest(".mic"); if (b) toggleMic(b); });
+async function toggleMic(btn) {
+  showErr(null);
+  if (mic) { const same = mic.btn === btn; mic.stop(); if (same) return; await sleep(300); }
+  const ta = $("#" + btn.dataset.for);
+  if (SR && !toggleMic.noSR) {
+    const r = new SR(); r.lang = "tr-TR"; r.interimResults = true; r.continuous = true;
+    const base = ta.value.trim(); let fin = "", got = false;
+    r.onresult = ev => { let it = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const x = ev.results[i]; if (x.isFinal) fin += x[0].transcript + " "; else it += x[0].transcript; } got = true; ta.value = (base + " " + fin + it).trim(); };
+    r.onerror = ev => {
+      if (ev.error === "no-speech" || ev.error === "aborted") return;
+      if (ev.error === "service-not-allowed" || ev.error === "language-not-supported") { toggleMic.noSR = true; mic = null; micUi(btn, false); return toggleMic(btn); }  // kayıt + Gemini ile yaz
+      showErr("Mikrofon hatası: " + ev.error + (ev.error === "not-allowed" ? " — tarayıcı ayarlarından bu site için mikrofon iznini açın." : ""));
+    };
+    r.onend = () => { if (mic?.btn === btn) mic = null; micUi(btn, false); if (got) ta.dispatchEvent(new Event("input", { bubbles: true })); };
+    try { r.start(); } catch (err) { showErr("Mikrofon başlatılamadı: " + err.message); return; }
+    mic = { btn, stop: () => r.stop() }; micUi(btn, true); return;
+  }
+  // yedek yol: sesi kaydet, Gemini ile yazıya çevir
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { showErr("Bu tarayıcı mikrofonla yazmayı desteklemiyor."); return; }
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { showErr("Mikrofon izni verilmedi. Tarayıcı ayarlarından bu site için mikrofonu açın."); return; }
+  const rec = new MediaRecorder(stream), parts = []; rec.ondataavailable = ev => ev.data.size && parts.push(ev.data);
+  rec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop()); mic = null; micUi(btn, false, "Yazıya çevriliyor…"); btn.classList.add("busy");
+    try { appendText(ta, await transcribe(new Blob(parts, { type: rec.mimeType || "audio/webm" }))); }
+    catch (err) { showErr(err); } finally { btn.classList.remove("busy"); micUi(btn, false); }
+  };
+  rec.start(); mic = { btn, stop: () => rec.state !== "inactive" && rec.stop() }; micUi(btn, true);
+}
+function wavFrom(pcm, rate) {
+  const b = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 32767, true);
+  return new Uint8Array(b);
+}
+async function transcribe(blob) {
+  const ab = await blob.arrayBuffer(), buf = await actx().decodeAudioData(ab), d = buf.getChannelData(0), ratio = buf.sampleRate / 16000, n = Math.floor(d.length / ratio), pcm = new Float32Array(n);
+  for (let i = 0; i < n; i++) pcm[i] = d[Math.floor(i * ratio)];
+  const wav = wavFrom(pcm, 16000); let bin = ""; for (let i = 0; i < wav.length; i += 8192) bin += String.fromCharCode.apply(null, wav.subarray(i, i + 8192));
+  const j = await gem(textModels(), { contents: [{ parts: [{ text: "Bu Türkçe konuşmayı aynen, noktalama işaretleriyle yazıya dök. Yalnızca konuşulan metni ver, yorum ekleme." }, { inlineData: { mimeType: "audio/wav", data: btoa(bin) } }] }] });
+  const t = textOf(j).trim(); if (!t) throw new Error("Konuşma anlaşılamadı, tekrar deneyin."); return t;
+}
+
 // ---------------------------------------------------------------- görsel üretimi
 async function planPrompts(desc, n) {
   const p = `Dikey (9:16) bir sosyal medya videosu için ${n} ayrı görsel tarifi (İngilizce, görsel üretim modeli için) hazırla.
