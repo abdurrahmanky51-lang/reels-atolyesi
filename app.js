@@ -10,9 +10,10 @@ const MAXP = 12;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
 function showErr(e) { const b = $("#err"); if (!e) { b.hidden = true; return; } b.textContent = String(e.message || e); b.hidden = false; b.scrollIntoView({ block: "center", behavior: "smooth" }); }
-async function busy(btn, fn) {
+async function busy(btn, fn, statusSel) {
   if (S.busy) return; S.busy = true; showErr(null); btn.classList.add("busy");
-  try { return await fn(); } catch (e) { console.error(e); showErr(e); } finally { btn.classList.remove("busy"); S.busy = false; }
+  S.statusEl = statusSel ? $(statusSel) : $("#voiceState"); if (statusSel) S.statusEl.textContent = "Başlıyor…";
+  try { const r = await fn(); if (statusSel) S.statusEl.textContent = ""; return r; } catch (e) { console.error(e); if (statusSel) S.statusEl.textContent = ""; showErr(e); } finally { btn.classList.remove("busy"); S.busy = false; }
 }
 function lsGet(k, d = "") { try { return localStorage.getItem(k) ?? d; } catch { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* özel gezinme */ } }
@@ -26,9 +27,13 @@ async function gem(models, body, tries = 4) {
     for (let i = 0; i < tries; i++) {
       let r, j;
       try {
-        r = await fetch(`${API}${encodeURIComponent(model)}:generateContent`, { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key() }, body: JSON.stringify(body) });
-        j = await r.json().catch(() => ({}));
-      } catch (e) { lastErr = new Error("Ağ hatası: " + e.message); await sleep(1500 * (i + 1)); continue; }
+        const ac = new AbortController(), to = setTimeout(() => ac.abort(), 100000);
+        gem.onWait?.(0, `${model} çağrılıyor… (deneme ${i + 1}/${tries})`);
+        try {
+          r = await fetch(`${API}${encodeURIComponent(model)}:generateContent`, { method: "POST", signal: ac.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": key() }, body: JSON.stringify(body) });
+          j = await r.json().catch(() => ({}));
+        } finally { clearTimeout(to); }
+      } catch (e) { lastErr = new Error(e.name === "AbortError" ? "Gemini 100 sn içinde yanıt vermedi (zaman aşımı)." : "Ağ hatası: " + e.message); gem.onWait?.(0, lastErr.message + " Tekrar deneniyor…"); await sleep(1500 * (i + 1)); continue; }
       if (r.ok) return j;
       const msg = j.error?.message || ("HTTP " + r.status);
       lastErr = new Error(`${model}: ${msg}`);
@@ -36,7 +41,7 @@ async function gem(models, body, tries = 4) {
         const m = /retry in ([\d.]+)s/i.exec(msg) || /"retryDelay":\s*"(\d+)/.exec(JSON.stringify(j));
         const wait = Math.min(60, m ? Math.ceil(+m[1]) + 1 : 6 * (i + 1));
         if (r.status === 429 && /quota|billing|limit: 0/i.test(msg) && !m) break;
-        gem.onWait?.(wait); await sleep(wait * 1000); continue;
+        gem.onWait?.(wait, `Google şu an yoğun/kota sınırında (${r.status}); ${wait} sn sonra yeniden denenecek…`); await sleep(wait * 1000); continue;
       }
       if (r.status === 404 || (r.status === 400 && /not found|not supported|unknown model/i.test(msg))) break;  // sonraki model
       throw lastErr;   // 400/401/403: anahtar, istek hatası
@@ -66,7 +71,7 @@ const ttsModels = () => [...new Set([$("#mTts").value.trim() || "gemini-2.5-flas
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
   let dp; addEventListener("beforeinstallprompt", e => { e.preventDefault(); dp = e; $("#installBtn").hidden = false; });
   $("#installBtn").onclick = () => dp?.prompt();
-  gem.onWait = s => { $("#voiceState").textContent = `Kota sınırı: ${s} sn bekleniyor…`; };
+  gem.onWait = (s, m) => { if (S.statusEl) S.statusEl.textContent = m || `Kota sınırı: ${s} sn bekleniyor…`; };
 })();
 
 // ---------------------------------------------------------------- fotoğraflar
@@ -127,7 +132,7 @@ Kullanıcının notu: ${$("#topic").value.trim() || "(yok — fotoğraflardan ç
   if (!segs.length) throw new Error("Anlatım üretilemedi, tekrar deneyin.");
   while (segs.length < n) segs.push(""); segs.length = n;
   S.segs = segs; S.audio = []; renderSegs(); $("#genVoice").disabled = false; $("#render").disabled = true;
-});
+}, "#scriptState");
 function renderSegs() {
   $("#segs").innerHTML = S.segs.map((t, i) => `<div class="seg"><img src="${S.photos[i]?.thumb || ""}" alt=""><div><textarea data-s="${i}" rows="3">${t.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</textarea>
     <div class="sub"><span>${wc(t)} kelime</span><button class="btn ghost mini" type="button" data-play="${i}" ${S.audio[i] ? "" : "hidden"}>▶ Dinle</button></div></div></div>`).join("");
@@ -306,7 +311,7 @@ Yalnızca şu JSON'u döndür (başka metin yok): {"keywords":[""],"youtube":{"t
     "Ekstra": [["Anahtar kelimeler", (d.keywords || []).join(", ")], ["Kapak yazısı", trim(d.cover_text, 40)]],
   };
   renderSeo();
-});
+}, "#seoState");
 function renderSeo() {
   const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   $("#seo").innerHTML = `<div class="seoCard"><button class="btn primary" id="copyAll">Hepsini kopyala</button></div>` + Object.entries(S.seo).map(([h, fs], gi) =>
