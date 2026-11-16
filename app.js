@@ -183,6 +183,7 @@ Kullanıcının notu: ${$("#topic").value.trim() || "(yok — görsellerden çı
   const segs = (parseJSON(textOf(j)).segments || []).map(s => String(s.text || "").trim()).filter(Boolean);
   if (!segs.length) throw new Error("Anlatım üretilemedi, tekrar deneyin.");
   while (segs.length < n) segs.push(""); segs.length = n;
+  for (let i = 0; i < segs.length; i++) if (segs[i] && !/[.!?…]["”)]?$/.test(segs[i])) segs[i] += ".";   // son hece kesilmesin: cümle noktalamayla bitsin
   S.segs = segs; S.voice = null; $("#voiceState").textContent = ""; renderSegs();
 }
 $("#genScript").onclick = () => busy($("#genScript"), makeScript, "#scriptState");
@@ -205,10 +206,10 @@ function pcmToBuffer(b64, mime) {
   return trimSilence(a, buf);
 }
 function trimSilence(a, buf) {
-  const d = buf.getChannelData(0), th = .012, pad = Math.round(.06 * buf.sampleRate);
-  let s = 0, e = d.length - 1; while (s < e && Math.abs(d[s]) < th) s++; while (e > s && Math.abs(d[e]) < th) e--;
-  s = Math.max(0, s - pad); e = Math.min(d.length - 1, e + pad); if (e - s < 2000) return buf;
-  const o = a.createBuffer(1, e - s + 1, buf.sampleRate); o.getChannelData(0).set(d.subarray(s, e + 1)); return o;
+  const d = buf.getChannelData(0), sr = buf.sampleRate, ps = Math.round(.06 * sr), pe = Math.round(.35 * sr);   // sonda kısık hece/nefes kesilmesin
+  let s = 0, e = d.length - 1; while (s < e && Math.abs(d[s]) < .012) s++; while (e > s && Math.abs(d[e]) < .003) e--;
+  s = Math.max(0, s - ps); e = Math.min(d.length - 1, e + pe); if (e - s < 2000) return buf;
+  const o = a.createBuffer(1, e - s + 1, sr); o.getChannelData(0).set(d.subarray(s, e + 1)); return o;
 }
 function splitBounds(buf, texts) {
   const d = buf.getChannelData(0), sr = buf.sampleRate, win = Math.max(1, Math.round(sr * .01)), n = Math.floor(d.length / win), N = texts.length;
@@ -238,7 +239,7 @@ $("#genVoice").onclick = () => busy($("#genVoice"), async () => {
 });
 
 // ---------------------------------------------------------------- video
-const LEAD = .35, TAIL = .9, FADE = .4;
+const LEAD = .35, TAIL = 1.8, FADE = .4;
 function plan() {
   const b = S.voice.bounds, N = b.length - 1;
   const tl = Array.from({ length: N }, (_, i) => ({ i, v0: i === 0 ? 0 : b[i] + LEAD, v1: i === N - 1 ? b[N] + LEAD + TAIL : b[i + 1] + LEAD, audioAt: b[i] + LEAD, adur: b[i + 1] - b[i] }));
@@ -261,7 +262,7 @@ function blurBg(img, W, H) {
 function drawPhoto(g, img, bg, W, H, z, mode, dir) {
   if (mode === "blur") {
     g.drawImage(bg, 0, 0);
-    const k = Math.min(W / img.width, H / img.height) * (1 + .06 * z), w = img.width * k, h = img.height * k;
+    const k = Math.min(W / img.width, H / img.height) * (1 + .03 * z), w = img.width * k, h = img.height * k;
     g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
   } else {
     const k = Math.max(W / img.width, H / img.height) * (1 + .12 * z), w = img.width * k, h = img.height * k;
@@ -324,7 +325,7 @@ $("#render").onclick = () => busy($("#render"), async () => {
     }, 1000 / 30);
     const raf = () => { if (a.currentTime - t0 < total) { draw(a.currentTime - t0); requestAnimationFrame(raf); } }; requestAnimationFrame(raf);
   });
-  await sleep(300); srcs.forEach(n => { try { n.stop(); } catch { /* bitmiş */ } }); rec.stop(); await stopped; wl?.release?.().catch(() => {});
+  await sleep(1000); srcs.forEach(n => { try { n.stop(); } catch { /* bitmiş */ } }); rec.stop(); await stopped; wl?.release?.().catch(() => {});
   const type = (rec.mimeType || mime || "video/webm").split(";")[0], ext = type.includes("mp4") ? "mp4" : "webm";
   const blob = new Blob(chunks, { type }); if (blob.size < 2000) throw new Error("Video oluşturulamadı (boş çıktı).");
   if (S.url) URL.revokeObjectURL(S.url); S.url = URL.createObjectURL(blob); S.blob = blob; S.file = `reels-${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}.${ext}`;
