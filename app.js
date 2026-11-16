@@ -103,7 +103,7 @@ async function loadPhoto(file) {
   t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
   return { img: c, thumb: t.toDataURL("image/jpeg", .5), b64: t.toDataURL("image/jpeg", .82).split(",")[1], name: file.name };
 }
-function resetDerived() { S.segs = []; S.audio = []; renderSegs(); $("#genVoice").disabled = true; $("#render").disabled = true; $("#voiceState").textContent = ""; }
+function resetDerived() { S.segs = []; S.audio = []; renderSegs(); $("#voiceState").textContent = ""; }
 function renderThumbs() {
   $("#thumbs").innerHTML = S.photos.map((p, i) => `<div class="th"><img src="${p.thumb}" alt=""><b>${i + 1}</b><div class="tools"><button data-m="-1" data-i="${i}" aria-label="Sola">◀</button><button data-d="${i}" aria-label="Sil">✕</button><button data-m="1" data-i="${i}" aria-label="Sağa">▶</button></div></div>`).join("");
 }
@@ -133,14 +133,13 @@ Kullanıcının notu: ${$("#topic").value.trim() || "(yok — fotoğraflardan ç
   const segs = (parseJSON(textOf(j)).segments || []).map(s => String(s.text || "").trim()).filter(Boolean);
   if (!segs.length) throw new Error("Anlatım üretilemedi, tekrar deneyin.");
   while (segs.length < n) segs.push(""); segs.length = n;
-  S.segs = segs; S.audio = []; renderSegs(); $("#genVoice").disabled = false; $("#render").disabled = true;
-}, "#scriptState");
+  S.segs = segs; S.audio = []; renderSegs(); }, "#scriptState");
 function renderSegs() {
   $("#segs").innerHTML = S.segs.map((t, i) => `<div class="seg"><img src="${S.photos[i]?.thumb || ""}" alt=""><div><textarea data-s="${i}" rows="3">${t.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</textarea>
     <div class="sub"><span>${wc(t)} kelime</span><button class="btn ghost mini" type="button" data-play="${i}" ${S.audio[i] ? "" : "hidden"}>▶ Dinle</button></div></div></div>`).join("");
 }
 const wc = t => (t.trim() ? t.trim().split(/\s+/).length : 0);
-$("#segs").addEventListener("input", e => { const i = e.target.dataset.s; if (i == null) return; S.segs[+i] = e.target.value; S.audio[+i] = null; $("#render").disabled = true; e.target.closest(".seg").querySelector("[data-play]").hidden = true; e.target.closest(".seg").querySelector(".sub span").textContent = wc(e.target.value) + " kelime"; });
+$("#segs").addEventListener("input", e => { const i = e.target.dataset.s; if (i == null) return; S.segs[+i] = e.target.value; S.audio[+i] = null; e.target.closest(".seg").querySelector("[data-play]").hidden = true; e.target.closest(".seg").querySelector(".sub span").textContent = wc(e.target.value) + " kelime"; });
 $("#segs").addEventListener("click", e => { const b = e.target.closest("[data-play]"); if (b) playBuf(S.audio[+b.dataset.play]); });
 let actxShared;
 function actx() { actxShared = actxShared || new (window.AudioContext || window.webkitAudioContext)(); if (actxShared.state === "suspended") actxShared.resume(); return actxShared; }
@@ -160,6 +159,7 @@ function trimSilence(a, buf) {
   const o = a.createBuffer(1, e - s + 1, buf.sampleRate); o.getChannelData(0).set(d.subarray(s, e + 1)); return o;
 }
 $("#genVoice").onclick = () => busy($("#genVoice"), async () => {
+  if (!S.segs.some(t => t.trim())) throw new Error("Önce “Fotoğraflara bakıp anlatımı yaz”a basıp metni oluşturun.");
   const voice = $("#voice").value, style = $("#vstyle").value.trim(), st = $("#voiceState");
   for (let i = 0; i < S.segs.length; i++) {
     if (S.audio[i]) continue;
@@ -173,8 +173,7 @@ $("#genVoice").onclick = () => busy($("#genVoice"), async () => {
     renderSegsKeep();
   }
   const tot = S.audio.reduce((a, b) => a + b.duration, 0);
-  st.textContent = `Ses hazır · toplam ~${tot.toFixed(0)} sn`; $("#render").disabled = false;
-});
+  st.textContent = `Ses hazır · toplam ~${tot.toFixed(0)} sn`; });
 function renderSegsKeep() { document.querySelectorAll("[data-play]").forEach(b => b.hidden = !S.audio[+b.dataset.play]); }
 
 // ---------------------------------------------------------------- video
@@ -227,7 +226,7 @@ function drawCaption(g, W, H, ch, active) {
   });
 }
 $("#render").onclick = () => busy($("#render"), async () => {
-  if (S.audio.some(a => !a) || S.audio.length !== S.photos.length) throw new Error("Önce sesi üretin.");
+  if (!S.segs.length || S.audio.length !== S.photos.length || S.audio.some(a => !a)) throw new Error("Önce “Sesi üret”e basıp sesin hazır olmasını bekleyin.");
   if (typeof MediaRecorder === "undefined") throw new Error("Bu tarayıcı video kaydını desteklemiyor (Chrome, Edge ya da güncel Safari kullanın).");
   const W = +$("#res").value, H = Math.round(W * 16 / 9), mode = $("#fit").value, subsOn = $("#subs").value === "on";
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
