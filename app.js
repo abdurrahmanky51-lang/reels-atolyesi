@@ -39,7 +39,9 @@ async function gem(models, body, tries = 4) {
       lastErr = new Error(`${model}: ${msg}`); prev = lastErr.message.slice(0, 220);
       if (r.status === 429 || r.status === 503 || r.status === 500) {
         const m = /retry in ([\d.]+)s/i.exec(msg) || /"retryDelay":\s*"(\d+)/.exec(JSON.stringify(j));
-        const wait = Math.min(60, m ? Math.ceil(+m[1]) + 1 : 6 * (i + 1));
+        const over = r.status === 503 || r.status === 500;           // model yoğun: beklemek yerine sıradaki modele geç
+        if (over && i >= 1) break;
+        const wait = Math.min(60, over ? 3 : (m ? Math.ceil(+m[1]) + 1 : 6 * (i + 1)));
         if (r.status === 429 && /quota|billing|limit: 0/i.test(msg) && !m) break;
         gem.onWait?.(wait, `Google şu an yoğun/kota sınırında (${r.status}); ${wait} sn sonra yeniden denenecek…`); await sleep(wait * 1000); continue;
       }
@@ -58,7 +60,7 @@ function parseJSON(t) {
   if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
   throw new Error("Gemini geçerli JSON döndürmedi.");
 }
-const textModels = () => [...new Set([$("#mText").value.trim() || "gemini-2.5-flash", "gemini-flash-latest"])];
+const textModels = () => [...new Set([$("#mText").value.trim() || "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"])];
 const ttsModels = () => [...new Set([$("#mTts").value.trim() || "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"])];
 
 // ---------------------------------------------------------------- ayarlar
