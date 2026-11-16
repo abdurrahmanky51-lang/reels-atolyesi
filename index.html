@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1217">
+<title>Reels Atölyesi — fotoğraftan sesli, altyazılı Shorts/Reels</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><svg viewBox="0 0 24 24" width="28" height="28"><rect width="24" height="24" rx="6" fill="#e8590c"/><path d="M9 7l8 5-8 5z" fill="#fff"/></svg>
+    <div><b>Reels Atölyesi</b><small>Fotoğraf → sesli, Türkçe altyazılı video + SEO</small></div></div>
+  <button class="btn ghost" id="installBtn" hidden>Telefona yükle</button>
+</header>
+
+<main>
+<section class="card" id="sKey">
+  <h2><span>1</span> Google (Gemini) API anahtarı</h2>
+  <p class="hint">Anahtar yalnızca bu cihazın tarayıcısında saklanır; istekler doğrudan Google'a gider. Ücretsiz anahtar: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
+  <div class="row"><input id="apiKey" type="password" placeholder="AIza..." autocomplete="off"><button class="btn ghost" id="keyShow" type="button">Göster</button></div>
+  <details><summary>Model ayarları</summary>
+    <div class="grid2">
+      <label>Metin/görsel modeli<input id="mText" value="gemini-2.5-flash"></label>
+      <label>Ses (TTS) modeli<input id="mTts" value="gemini-2.5-flash-preview-tts"></label>
+    </div>
+    <p class="hint">Model adı kullanımdan kalkarsa buradan güncelleyin; ses için yedek olarak <code>gemini-3.1-flash-tts-preview</code> da denenir.</p>
+  </details>
+</section>
+
+<section class="card" id="sPhotos">
+  <h2><span>2</span> Fotoğraflar</h2>
+  <label class="drop" id="drop"><input id="files" type="file" accept="image/*" multiple hidden><b>+ Fotoğraf ekle</b><small>En fazla 12, sıralaması video sırasıdır</small></label>
+  <div id="thumbs" class="thumbs"></div>
+</section>
+
+<section class="card" id="sScript">
+  <h2><span>3</span> Anlatım metni</h2>
+  <label>Konu / notlar <small>(isteğe bağlı: yer, olay, vurgulanacak şeyler)</small>
+    <textarea id="topic" rows="2" placeholder="Örn. Kapadokya'da balon turu, ilk kez gidenler için"></textarea></label>
+  <div class="grid3">
+    <label>Üslup<select id="tone"><option>Merak uyandıran</option><option>Bilgilendirici</option><option>Duygusal</option><option>Eğlenceli</option><option>Belgesel</option></select></label>
+    <label>Hedef süre<select id="dur"><option value="20">~20 sn</option><option value="30" selected>~30 sn</option><option value="45">~45 sn</option><option value="60">~60 sn</option></select></label>
+    <label class="chk"><input id="cta" type="checkbox" checked> Sonda “takip et” çağrısı</label>
+  </div>
+  <button class="btn primary" id="genScript">Fotoğraflara bakıp anlatımı yaz</button>
+  <div id="segs" class="segs"></div>
+</section>
+
+<section class="card" id="sVoice">
+  <h2><span>4</span> Ses</h2>
+  <div class="grid2">
+    <label>Seslendirici<select id="voice"></select></label>
+    <label>Konuşma tarzı<input id="vstyle" value="sıcak, akıcı ve ilgi çekici bir anlatıcı gibi"></label>
+  </div>
+  <button class="btn primary" id="genVoice" disabled>Sesi üret</button>
+  <p class="hint" id="voiceState"></p>
+</section>
+
+<section class="card" id="sVideo">
+  <h2><span>5</span> Video</h2>
+  <div class="grid3">
+    <label>Çözünürlük<select id="res"><option value="1080">1080×1920 (önerilen)</option><option value="720">720×1280 (hızlı/hafif)</option></select></label>
+    <label>Kadraj<select id="fit"><option value="fill">Ekranı doldur</option><option value="blur">Tam görüntü + bulanık zemin</option></select></label>
+    <label>Altyazı<select id="subs"><option value="on">Türkçe altyazı açık</option><option value="off">Kapalı</option></select></label>
+  </div>
+  <button class="btn primary" id="render" disabled>Videoyu oluştur</button>
+  <p class="hint" id="renderState">Video, süresi kadar gerçek zamanlı oluşturulur; bu sırada ekranı ve sekmeyi açık tutun.</p>
+  <progress id="prog" value="0" max="1" hidden></progress>
+  <div id="result" hidden>
+    <video id="player" controls playsinline></video>
+    <div class="row wrap"><a class="btn primary" id="dl" download>⬇ Telefona / bilgisayara indir</a><button class="btn ghost" id="share" hidden>Paylaş (Instagram/YouTube uygulaması)</button></div>
+    <p class="hint" id="fmtNote"></p>
+  </div>
+</section>
+
+<section class="card" id="sSeo">
+  <h2><span>6</span> SEO: başlık · açıklama · etiketler</h2>
+  <label class="chk"><input id="useSearch" type="checkbox" checked> Google Arama ile güncel anahtar kelimeleri kullan</label>
+  <label class="chk"><input id="aiNote" type="checkbox" checked> Açıklamaya “yapay zekâ anlatımı” notu ekle</label>
+  <button class="btn primary" id="genSeo">SEO metinlerini üret</button>
+  <div id="seo"></div>
+</section>
+
+<p id="err" class="err" role="alert" hidden></p>
+</main>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
