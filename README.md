@@ -6,7 +6,7 @@ Sunucusuz, tamamen tarayıcıda çalışır (GitHub Pages). Telefondan da açıl
 
 ## Kullanım
 1. https://aistudio.google.com/apikey adresinden ücretsiz Gemini API anahtarı alın, uygulamaya yapıştırın (yalnızca tarayıcınızda saklanır).
-2. Fotoğrafları ekleyin → **Anlatımı yaz** → metni isterseniz düzenleyin → **Sesi üret** → **Videoyu oluştur** → **İndir**.
+2. Görselleri ekleyin → **Anlatımı yaz** → metni isterseniz düzenleyin → **Sesi üret** → **Videoyu oluştur** → **İndir**.
 3. **SEO metinlerini üret** → her alanın yanındaki **Kopyala** ile yapıştırın.
 
 ## Notlar

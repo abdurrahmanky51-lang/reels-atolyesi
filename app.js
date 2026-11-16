@@ -62,15 +62,14 @@ function parseJSON(t) {
   throw new Error("Gemini geçerli JSON döndürmedi.");
 }
 const textModels = () => [...new Set([$("#mText").value.trim() || "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"])];
-const imgModels = () => [...new Set([$("#mImg").value.trim() || "gemini-2.5-flash-image", "gemini-3.1-flash-image-preview"])];
 const ttsModels = () => [...new Set([$("#mTts").value.trim() || "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"])];
 
 // ---------------------------------------------------------------- ayarlar
 (function init() {
-  $("#apiKey").value = lsGet("rs-key"); $("#mText").value = lsGet("rs-mtext", "gemini-2.5-flash"); $("#mTts").value = lsGet("rs-mtts", "gemini-2.5-flash-preview-tts"); $("#mImg").value = lsGet("rs-mimg", "gemini-2.5-flash-image");
+  $("#apiKey").value = lsGet("rs-key"); $("#mText").value = lsGet("rs-mtext", "gemini-2.5-flash"); $("#mTts").value = lsGet("rs-mtts", "gemini-2.5-flash-preview-tts");
   $("#voice").innerHTML = VOICES.map(([n, d]) => `<option value="${n}">${n} — ${d}</option>`).join("");
   $("#voice").value = lsGet("rs-voice", "Kore"); $("#vstyle").value = lsGet("rs-vstyle", $("#vstyle").value);
-  for (const [id, k] of [["#apiKey", "rs-key"], ["#mText", "rs-mtext"], ["#mTts", "rs-mtts"], ["#mImg", "rs-mimg"], ["#voice", "rs-voice"], ["#vstyle", "rs-vstyle"]]) $(id).addEventListener("change", () => lsSet(k, $(id).value.trim()));
+  for (const [id, k] of [["#apiKey", "rs-key"], ["#mText", "rs-mtext"], ["#mTts", "rs-mtts"], ["#voice", "rs-voice"], ["#vstyle", "rs-vstyle"]]) $(id).addEventListener("change", () => lsSet(k, $(id).value.trim()));
   $("#keyShow").onclick = () => { const i = $("#apiKey"); i.type = i.type === "password" ? "text" : "password"; $("#keyShow").textContent = i.type === "password" ? "Göster" : "Gizle"; };
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
   let dp; addEventListener("beforeinstallprompt", e => { e.preventDefault(); dp = e; $("#installBtn").hidden = false; });
@@ -165,53 +164,9 @@ async function transcribe(blob) {
   const t = textOf(j).trim(); if (!t) throw new Error("Konuşma anlaşılamadı, tekrar deneyin."); return t;
 }
 
-// ---------------------------------------------------------------- görsel üretimi
-async function planPrompts(desc, n) {
-  const p = `Dikey (9:16) bir sosyal medya videosu için ${n} ayrı görsel tarifi (İngilizce, görsel üretim modeli için) hazırla.
-Kullanıcının isteği: ${desc}
-Kurallar: Hepsi aynı stil, renk paleti ve (varsa) aynı karakter/mekânla tutarlı olsun; ama her biri farklı bir sahne/açı olsun ve birlikte merak uyandıran bir hikâye akışı oluştursun. Görsellerin üzerinde yazı, logo, filigran olmasın. Her tarif 1-2 cümle olsun.
-Yalnızca JSON döndür: {"prompts":["...", "..."]} (tam ${n} adet).`;
-  try {
-    const j = await gem(textModels(), { contents: [{ parts: [{ text: p }] }], generationConfig: { responseMimeType: "application/json", temperature: .9 } });
-    const arr = (parseJSON(textOf(j)).prompts || []).map(x => String(x).trim()).filter(Boolean);
-    if (arr.length >= n) return arr.slice(0, n);
-    while (arr.length && arr.length < n) arr.push(arr[arr.length - 1] + " (different angle)");
-    if (arr.length) return arr;
-  } catch (e) { console.warn("tarif planı başarısız, düz tarif kullanılacak", e); }
-  return Array.from({ length: n }, (_, i) => `${desc}. Scene ${i + 1} of ${n}, a different composition and angle.`);
-}
-async function makeImage(prompt) {
-  const body = { contents: [{ parts: [{ text: prompt + "\nVertical 9:16 composition, no text, no watermark, no logo." }] }],
-    generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "9:16" } } };
-  let j;
-  try { j = await gem(imgModels(), body); }
-  catch (e) { if (/429|quota|RESOURCE_EXHAUSTED|limit/i.test(e.message)) e.message += "\n\nİpucu: Google'ın görsel modelleri ücretsiz anahtarda çoğu zaman kapalı ya da çok düşük kotalı. Google AI Studio / Cloud'da faturalandırmayı açın, birkaç dakika bekleyin ya da bu arada “Kendi fotoğrafını ekle” ile ilerleyin."; throw e; }
-  const part = (j.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data);
-  if (!part) { const why = textOf(j) || j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || "bilinmiyor"; throw new Error("Görsel üretilmedi (" + String(why).slice(0, 160) + "). Tarifi değiştirip tekrar deneyin."); }
-  const bin = atob(part.inlineData.data), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-  return new File([u], "uretilen.png", { type: part.inlineData.mimeType || "image/png" });
-}
-$("#genImages").onclick = () => busy($("#genImages"), async () => {
-  const desc = $("#imgPrompt").value.trim(); if (!desc) throw new Error("Önce nasıl görseller istediğinizi yazın.");
-  const n = Math.min(+$("#imgCount").value, MAXP - S.photos.length); if (n < 1) throw new Error(`En fazla ${MAXP} görsel olabilir; önce birkaçını silin.`);
-  const st = $("#imgState"); S.statusEl = st; st.textContent = "Görsel tarifleri hazırlanıyor…";
-  const prompts = await planPrompts(desc, n); let made = 0;
-  try {
-    for (let i = 0; i < n; i++) {
-      st.textContent = `Görsel ${i + 1}/${n} üretiliyor…`; S.statusEl = st;
-      S.photos.push(await loadPhoto(await makeImage(prompts[i]))); made++; renderThumbs();
-    }
-  } catch (e) { if (made) { resetDerivedKeepPhotos(); e.message = `${made}/${n} görsel üretildi, sonra durdu: ` + e.message; } throw e; }
-  resetDerivedKeepPhotos();
-  st.textContent = "Görseller hazır; görsellere göre anlatım yazılıyor…"; S.statusEl = $("#scriptState");
-  await makeScript();
-  $("#sScript").scrollIntoView({ behavior: "smooth", block: "start" });
-}, "#imgState");
-function resetDerivedKeepPhotos() { S.segs = []; S.voice = null; renderSegs(); renderThumbs(); }
-
 // ---------------------------------------------------------------- anlatım
 async function makeScript() {
-  if (!S.photos.length) throw new Error("Önce görsel üretin ya da fotoğraf ekleyin.");
+  if (!S.photos.length) throw new Error("Önce en az bir görsel ekleyin.");
   const n = S.photos.length, total = +$("#dur").value, per = Math.max(8, Math.round(total / n * 2.4));
   const prompt = `Sen Türkiye'de Instagram Reels ve YouTube Shorts için çalışan usta bir video metin yazarısın. Aşağıdaki ${n} görseli sırayla gösteren dikey bir video için TÜRKÇE sesli anlatım yaz. Bütün bölümler tek bir anlatıcının kesintisiz, birbirine bağlanan tek hikâyesi olsun.
 Kurallar:
@@ -269,7 +224,7 @@ function splitBounds(buf, texts) {
   b.push(buf.duration); return b;
 }
 $("#genVoice").onclick = () => busy($("#genVoice"), async () => {
-  if (!S.segs.some(t => t.trim())) throw new Error("Önce görsel üretip anlatım metnini oluşturun.");
+  if (!S.segs.some(t => t.trim())) throw new Error("Önce görselleri ekleyip anlatım metnini oluşturun.");
   const voice = $("#voice").value, style = $("#vstyle").value.trim(), st = $("#voiceState");
   st.textContent = "Tek ses olarak üretiliyor… (tüm anlatım tek seferde, aynı ses ve tonla)";
   const text = S.segs.map(t => t.trim()).filter(Boolean).join("\n\n");
